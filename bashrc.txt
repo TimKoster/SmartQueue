@@ -1,0 +1,29 @@
+Add this to your .bashrc
+
+export PATH=/external_queue/:"$PATH"
+
+eqbatch () {
+    external_queue/queue_controller.py eqbatch "$@"
+}
+
+eqconfig () {
+    external_queue/queue_controller.py eqconfig "$@"
+}
+
+eq () {
+    external_queue/queue_controller.py eq "$@"
+}
+
+eqedit () {
+    external_queue/queue_controller.py eqedit "$@"
+}
+
+equpdate () {
+    external_queue/queue_controller.py equpdate "$@"
+}
+
+if [ -d ~/.bash_completion.d ]; then
+    for completion in ~/.bash_completion.d/*; do
+        source "$completion"
+    done
+fi

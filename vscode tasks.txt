@@ -1,0 +1,38 @@
+Add this to your .vscode/tasks.json
+
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "submit job",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "external_queue/queue_controller.py",
+        "eqbatch",
+        "${file}",
+        "${input:param1}",
+        "${input:param2}",
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build"
+    },
+  ],
+  "inputs": [
+    {
+        "id": "param1",
+        "description": "Node partition:",
+        "default": "A",
+        "type": "promptString"
+    },
+    {
+        "id": "param2",
+        "description": "Display name:",
+        "default": "WAAA",
+        "type": "promptString"
+    },
+
+  ]
+}
