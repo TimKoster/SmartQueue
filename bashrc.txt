@@ -1,25 +1,28 @@
 Add this to your .bashrc
 
 export PATH=/external_queue/:"$PATH"
-
 eqbatch () {
-    external_queue/queue_controller.py eqbatch "$@"
+    ~/external_queue/queue_controller.py eqbatch "$@"
 }
 
 eqconfig () {
-    external_queue/queue_controller.py eqconfig "$@"
+    ~/external_queue/queue_controller.py eqconfig "$@"
 }
 
 eq () {
-    external_queue/queue_controller.py eq "$@"
+    ~/external_queue/queue_controller.py eq "$@"
+}
+
+eqcancel () {
+    ~/external_queue/queue_controller.py eqcancel "$@"
 }
 
 eqedit () {
-    external_queue/queue_controller.py eqedit "$@"
+    ~/external_queue/queue_controller.py eqedit "$@"
 }
 
 equpdate () {
-    external_queue/queue_controller.py equpdate "$@"
+    ~/external_queue/queue_controller.py equpdate "$@"
 }
 
 if [ -d ~/.bash_completion.d ]; then
@@ -27,3 +30,5 @@ if [ -d ~/.bash_completion.d ]; then
         source "$completion"
     done
 fi
+
+# External queue end

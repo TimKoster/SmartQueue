@@ -4,35 +4,40 @@ import string
 import pandas as pd
 from pathlib import Path
 import sys
-import glob
-import re
 import subprocess
 import random
 import os
+import datetime
 
+from data_collector import scrape_results
 
 relative_queued_path = "external_queue/queued"
 relative_finished_path = "external_queue/finished"
 relative_running_path = "external_queue/running"
 relative_node_config_path = "external_queue/runner_config"
 
+relative_excel_path = "external_queue/overview.xlsx"
+
 # In the node config, if something is empty or marked ALL, it will accept any job (but only if that job wasnt let in on another node)
 wildcard_key = "ALL"
 
+# Degree by which our freedom is supressed 
 max_runners = 8
 
 class JobInfo(object):
     input_path = None
     node_partition = ""
+    started_at = 0
     our_path = None
 
     display_name = ""
     job_id = 0
     status = ""
 
-    def __init__(self, input_path, node_partition, our_path, job_id, display_name, status):
+    def __init__(self, input_path, node_partition, started_at, our_path, job_id, display_name, status):
         self.input_path = Path(input_path)
         self.node_partition = node_partition
+        self.started_at = started_at if started_at is not None else 0
         self.our_path = our_path
         self.job_id = int(job_id) if job_id is not None else 0
         self.display_name = display_name
@@ -47,7 +52,7 @@ def get_value_of_key_from_string_list(key, string_list, can_be_absent = False):
 
 def get_job_objects(relative_path):
     jobjects = list()
-    pathlist = Path(relative_path).glob('*')
+    pathlist = Path(relative_path).glob('*.job')
     
     for path in pathlist:
         with open(path, "r") as queue_file:
@@ -56,6 +61,7 @@ def get_job_objects(relative_path):
             jobjects.append(JobInfo(
                 get_value_of_key_from_string_list("input_path", file_content, False), 
                 get_value_of_key_from_string_list("node_partition", file_content, False),
+                get_value_of_key_from_string_list("started_at", file_content, True),
                 path,
                 get_value_of_key_from_string_list("job_id", file_content, True),
                 get_value_of_key_from_string_list("display_name", file_content, True),
@@ -119,6 +125,7 @@ def submit_queued_job(job):
     with open(f"{relative_running_path}/{file_name}", "x") as running_file:
         running_file.write("input_path" + " " + str(job.input_path) + "\n")
         running_file.write("node_partition" + " " + job.node_partition + "\n")
+        running_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
         if job.display_name is not None:
             running_file.write("display_name" + " " + job.display_name + "\n")
         running_file.write("job_id" + " " + str(job_id) + "\n")
@@ -137,8 +144,35 @@ def get_current_running_count():
     queue_size = result.stdout.count("NODE") - 1
     return queue_size
 
-def gather_results(write_file, input_path):
-    write_file.write("RESULTS ARE HERE WAAAUW")
+def gather_results(write_file, job):
+    write_file.write("Results below this line:\n")
+
+    calculation_directory = Path(job.input_path).parent
+    results, seperate_results = scrape_results(calculation_directory, job.job_id)
+
+    # Write neatly into the finished job file
+    for key in results:
+        write_file.write(key + " " + str(results[key]) + "\n")
+    
+    # Write these into their own results file. We could consider giving them their own directory to keep it overseeable?
+    for extension in seperate_results:
+        with open(f"{relative_finished_path}/{job.display_name + '.' if job.display_name is not None else ''}{str(job.job_id)}.{extension}", "x") as new_file: 
+            new_file.write(seperate_results[extension])
+            print("New file added:", new_file.name)
+
+    # Write to excel in case we're not anarchists
+    excel = pd.read_excel(relative_excel_path)
+
+    presentable_dict = {"status": results["status"], "job_id":str(job.job_id), "name":job.display_name, "path":job.input_path}
+    presentable_dict.update(seperate_results)
+    presentable_dict.update(results)
+
+    new_row = pd.DataFrame(presentable_dict, index = [0])
+    excel = pd.concat([excel, new_row], ignore_index = True)
+
+    with pd.ExcelWriter(relative_excel_path, mode = 'a', if_sheet_exists = 'overlay') as writer:
+        excel.to_excel(writer, sheet_name = 'Jobs', index = False)
+        print("Updated", relative_excel_path)
 
 # Check what jobs are finished, and finish them if they are, then check the whole queue
 # For when you need to manually prompt a full update for one reason or another
@@ -177,25 +211,31 @@ def check_queue_and_submit_jobs(called_from_job = False):
         # The runner this is called from is about to free up, so we can lie a bit
         available_runners += 1
 
-    print("Occupied:", current_running_count, "available:", available_runners)
-
     if available_runners <= 0:
-        print("No available runners, waiting...")
         return
     
+    running_jobs = get_job_objects(relative_running_path)
     queued_jobs = get_job_objects(relative_queued_path)
 
     node_config = get_node_config(relative_node_config_path)
 
     jobs_to_submit = list()
 
-    for job in queued_jobs:
-        if job.node_partition in node_config:
-            node_config.remove(job.node_partition)
-            jobs_to_submit.append(job)
+    for running_job in running_jobs:
+        if running_job.node_partition in node_config:
+            node_config.remove(running_job.node_partition)
         elif "ALL" in node_config:
             node_config.remove("ALL")
-            jobs_to_submit.append(job)
+    
+    # Loop through partitions first so that the config order is also the priority
+    for partition in node_config:
+        for queued_job in queued_jobs:
+            if queued_job.node_partition == partition:
+                jobs_to_submit.append(queued_job)
+                break
+            elif partition == "ALL":
+                jobs_to_submit.append(queued_job)
+                break
 
     for job in jobs_to_submit:
         if(available_runners <= 0):
@@ -210,14 +250,14 @@ def finish_job(job, check_for_updates = True, called_from_job = False):
     file_name = (job.display_name + "." if job.display_name is not None else "") + str(job.job_id) + ".job"
 
     with open(f"{relative_finished_path}/{file_name}", "x") as finished_file:
+        # Needs to be a function or something
         finished_file.write("input_path" + " " + str(job.input_path) + "\n")
         finished_file.write("node_partition" + " " + job.node_partition + "\n")
         if job.display_name is not None:
             finished_file.write("display_name" + " " + job.display_name + "\n")
         finished_file.write("job_id" + " " + str(job.job_id) + "\n")
-        finished_file.write("status finished\n")
 
-        gather_results(finished_file, job.input_path)
+        gather_results(finished_file, job)
     
     if check_for_updates:
         # There should be some free space again
@@ -231,6 +271,8 @@ def run_command(command, arguments):
             eqconfig(arguments)
         case "eq":
             eq(arguments)
+        case "eqcancel":
+            eqcancel(arguments)
         case "eqedit":
             eqedit(arguments)
         case "equpdate":
@@ -247,8 +289,25 @@ def eqbatch(arguments):
     check_queue_and_submit_jobs()
 
 def eqconfig(arguments):
-    print("do something")
+    if len(arguments) < 1:
+        print("Usage: eqconfig <A/B/ALL/...> [A/B/ALL/...] ...")
+        print("Updates the external queue runner config")
+        print("The order in the eqconfig is also the order by which jobs are pulled from the queue")
+        print("Accepts partition string for:", max_runners, "runners")
+        print("Use -i to view curent config")
+    elif arguments[0] == "-i":
+        with open(relative_node_config_path, "r") as config_file:
+            print("Current runner config:")
+            print(config_file.read())
+    else:
+        with open(relative_node_config_path, "w") as config_file:
+            for string in arguments:
+                config_file.write(string + "\n")
+            for i in range(max_runners - len(arguments)):
+                config_file.write("ALL\n")
 
+# Get the current 'external queue', including the queued jobs at the top. 
+# Comes with -r(unning), -q(ueued), -f(inished) and -a(ll) options too, but default is running and queued
 def eq(arguments):
     print_running, print_queued, print_finished = False, False, False
 
@@ -269,7 +328,7 @@ def eq(arguments):
                 print("Does not report on jobs not handled by the external queue.")
                 return
     
-    # If there's a mistake in the input file, it will automatically check whenever you call eq so it wont lie to you
+    # If there's a mistake in the input file it will never update the job status, so we always double check if jobs are REALLY running
     # -s blocks this because it can be a little expensive to double check everything
     if len(arguments) < 2 or arguments[1] != "-s":
         update_everything()
@@ -286,12 +345,23 @@ def eq(arguments):
     
     if len(jobs) > 0:
         for job in jobs:
-            info.append([str(job.job_id), job.display_name, job.node_partition, str(job.input_path), job.status, "0"])
+            time_running = "N/A"
+            if job.started_at != 0:
+                time_running = str(datetime.timedelta(seconds = int(datetime.datetime.today().timestamp() - float(job.started_at))))
+
+            info.append([str(job.job_id), job.display_name, job.node_partition, str(job.input_path), job.status, time_running])
     else:
         # Let them know we did something 
         info.append(["none", "none", "none", "none", "none", "none"])
     table = pd.DataFrame(info, columns = ["JOBID", "NAME", "PARTITION", "PATH", "STATUS", "TIME"])
+
+    pd.set_option('display.max_colwidth', None)
+    pd.set_option('display.colheader_justify', 'left')
+
     print(table)
+
+def eqcancel(arguments):
+    print("do something")
 
 def eqedit(arguments):
     print("do something")
@@ -308,7 +378,16 @@ def equpdate(arguments):
     else:
         update_everything()
 
+# Run whatever command was selected
 if len(sys.argv) > 1:
-    print(sys.argv)
-    run_command(sys.argv[1], sys.argv[2:])
+    # Make sure the working dir is always the rootdir. Easiest way is to get our location, which should be ~/external_queue/, and go back a step
+    our_dir = Path(os.path.dirname(os.path.realpath(__file__)))
+    root_dir = our_dir.parent
+    old_dir = os.curdir
 
+    # Make sure we always return to the working dir the user was in even if we failed, so try() here
+    os.chdir(root_dir)
+    # argv0 is our file, argv1 is the command, rest is arguments
+    run_command(sys.argv[1], sys.argv[2:])
+    # and put everything back toghether here
+    os.chdir(old_dir)
