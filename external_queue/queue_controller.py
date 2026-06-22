@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/scistor/tc/dtt741/external_queue/venv/bin/python3.11
 import datetime
 import string
 import pandas as pd
@@ -39,7 +39,7 @@ class JobInfo(object):
         self.node_partition = node_partition
         self.started_at = started_at if started_at is not None else 0
         self.our_path = our_path
-        self.job_id = int(job_id) if job_id is not None else 0
+        self.job_id = job_id if job_id is not None else 0
         self.display_name = display_name
         self.status = status
 
@@ -88,7 +88,8 @@ def submit_job(script_path):
     # Write an update command to the bash file
     with open(script_path, "r+") as script_file:
         saved_content = script_file.read()
-        script_file.write("\npython ~/external_queue/queue_controller.py equpdate ${SLURM_JOBID} -r")
+        # If we call it through python it will not use the virtual environment, so just call it through bash
+        script_file.write("\nbash -ic equpdate ${SLURM_JOBID} -r")
 
     failed = False
     try:
@@ -193,12 +194,14 @@ def update_everything():
     check_queue_and_submit_jobs()
 
 def add_to_external_queue(script_path, node_partition = "", display_name = None):
-    # this might not be unique enough
-    file_name = display_name if display_name is not None else ''.join(random.choices(string.ascii_letters + string.digits, k = 8))
+    # what are the odds they overlap? I'll risk it
+    queue_id = 'Q' + str(random.randint(0, 99999))
+    file_name = ((display_name + '.') if display_name is not None else '') + queue_id
 
     with open(f"{relative_queued_path}/{file_name}.job", "x") as new_file:
         new_file.write("input_path" + " " + script_path + "\n")
         new_file.write("node_partition" + " " + node_partition + "\n")
+        new_file.write("job_id" + " " + queue_id + "\n")
         if display_name is not None:
             new_file.write("display_name" + " " + display_name + "\n")
         new_file.write("status queued\n")
@@ -229,13 +232,18 @@ def check_queue_and_submit_jobs(called_from_job = False):
     
     # Loop through partitions first so that the config order is also the priority
     for partition in node_config:
+        job_to_remove = None
         for queued_job in queued_jobs:
             if queued_job.node_partition == partition:
                 jobs_to_submit.append(queued_job)
+                job_to_remove = queued_job
                 break
             elif partition == "ALL":
                 jobs_to_submit.append(queued_job)
+                job_to_remove = queued_job
                 break
+        if job_to_remove is not None:
+            queued_jobs.remove(job_to_remove)
 
     for job in jobs_to_submit:
         if(available_runners <= 0):
@@ -256,6 +264,8 @@ def finish_job(job, check_for_updates = True, called_from_job = False):
         if job.display_name is not None:
             finished_file.write("display_name" + " " + job.display_name + "\n")
         finished_file.write("job_id" + " " + str(job.job_id) + "\n")
+        # started being finished >:)
+        finished_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
 
         gather_results(finished_file, job)
     
@@ -361,7 +371,21 @@ def eq(arguments):
     print(table)
 
 def eqcancel(arguments):
-    print("do something")
+    if len(arguments) > 0:
+        for job in get_job_objects(relative_running_path):
+            if job.job_id == arguments[0]:
+                subprocess.run(["scancel", str(job.job_id)], check = True)
+                finish_job(job, check_for_updates = False)
+                print(f"Cancelled job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
+                break
+        for job in get_job_objects(relative_queued_path):
+            if job.job_id == arguments[0]:
+                Path.unlink(job.our_path)
+                print(f"Cancelled queued job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
+                break
+    else:
+        print("Usage: eqcancel <job_id>")
+        print("Cancels a running job and moves it to the finished queue. Does not pull in new jobs.")
 
 def eqedit(arguments):
     print("do something")
@@ -385,9 +409,9 @@ if len(sys.argv) > 1:
     root_dir = our_dir.parent
     old_dir = os.curdir
 
-    # Make sure we always return to the working dir the user was in even if we failed, so try() here
+    # Make sure we return to the working dir the user was in even
     os.chdir(root_dir)
-    # argv0 is our file, argv1 is the command, rest is arguments
+    # argv[0] is our file.py, argv[1] is the command, rest is arguments
     run_command(sys.argv[1], sys.argv[2:])
     # and put everything back toghether here
     os.chdir(old_dir)
