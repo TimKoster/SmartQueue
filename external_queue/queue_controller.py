@@ -1,6 +1,5 @@
 #!/scistor/tc/dtt741/external_queue/venv/bin/python3.11
 import datetime
-import string
 import pandas as pd
 from pathlib import Path
 import sys
@@ -50,7 +49,7 @@ def get_value_of_key_from_string_list(key, string_list, can_be_absent = False):
         if can_be_absent: return None
         else: print("Could not find key", key)
 
-def get_job_objects(relative_path):
+def get_job_objects(relative_path) -> list[JobInfo]:
     jobjects = list()
     pathlist = Path(relative_path).glob('*.job')
     
@@ -89,7 +88,8 @@ def submit_job(script_path):
     with open(script_path, "r+") as script_file:
         saved_content = script_file.read()
         # If we call it through python it will not use the virtual environment, so just call it through bash
-        script_file.write("\nbash -ic equpdate ${SLURM_JOBID} -r")
+        # edit: i started being a little less dumb and I now realize I can just type the path directly to invoke bash and using the python command forces a specific environment
+        script_file.write('\nbash -ic "equpdate ${SLURM_JOBID} -r"')
 
     failed = False
     try:
@@ -145,8 +145,10 @@ def get_current_running_count():
     queue_size = result.stdout.count("NODE") - 1
     return queue_size
 
-def gather_results(write_file, job):
+def gather_results(write_file, job:JobInfo):
     write_file.write("Results below this line:\n")
+    # BUG: Not sure why, but the autocollector after a job does update the excel but does not always move jobs to finished, but does on user update
+    print("Gathering results for job", job.job_id, job.display_name)
 
     calculation_directory = Path(job.input_path).parent
     results, seperate_results = scrape_results(calculation_directory, job.job_id)
@@ -251,13 +253,15 @@ def check_queue_and_submit_jobs(called_from_job = False):
         submit_queued_job(job)
         available_runners -= 1
     
-def finish_job(job, check_for_updates = True, called_from_job = False):
+def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
     Path.unlink(job.our_path) # Delete the job file, all relevant data is in an object anyway
+    print("Unlinking", job.job_id)
 
     # ternary abuse? must be a better way. also maybe make it a function
     file_name = (job.display_name + "." if job.display_name is not None else "") + str(job.job_id) + ".job"
 
     with open(f"{relative_finished_path}/{file_name}", "x") as finished_file:
+        print("Opening file", finished_file.name)
         # Needs to be a function or something
         finished_file.write("input_path" + " " + str(job.input_path) + "\n")
         finished_file.write("node_partition" + " " + job.node_partition + "\n")
@@ -269,6 +273,8 @@ def finish_job(job, check_for_updates = True, called_from_job = False):
 
         gather_results(finished_file, job)
     
+    print("Checking for updates:", check_for_updates)
+
     if check_for_updates:
         # There should be some free space again
         check_queue_and_submit_jobs(called_from_job)
@@ -391,11 +397,13 @@ def eqedit(arguments):
     print("do something")
 
 def equpdate(arguments):
+    print("Calling equpdate with arguments:", arguments)
     if len(arguments) > 0:
-        # Important to track, because a job that is finishing will still make the script think no new jobs can be submitted
+        # Important to track, because a job that is finishing will still make the script think no new jobs can be submitted because that job is technically still running
         # Also I dont know naming conventions but -r is for robot beep boop
         called_from_job = True if arguments[1] == "-r" else False
         for job in get_job_objects(relative_running_path):
+            print(f"Comparing {job.job_id} as {type(job.job_id)} with {int(arguments[0])}")
             if job.job_id == int(arguments[0]):
                 finish_job(job, called_from_job = called_from_job)
                 break
@@ -403,6 +411,7 @@ def equpdate(arguments):
         update_everything()
 
 # Run whatever command was selected
+print("Received arguments:", sys.argv)
 if len(sys.argv) > 1:
     # Make sure the working dir is always the rootdir. Easiest way is to get our location, which should be ~/external_queue/, and go back a step
     our_dir = Path(os.path.dirname(os.path.realpath(__file__)))
