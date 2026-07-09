@@ -21,8 +21,10 @@ relative_excel_path = "external_queue/overview.xlsx"
 wildcard_key = "ALL"
 
 # Degree by which our freedom is supressed 
+# Maybe shouldn't be hardcoded? I also dont wanna overcomplicate things with ANOTHER config file
 max_runners = 8
 
+# Holds all the job info we need. Is written to .job files and read from .job files
 class JobInfo(object):
     input_path = None
     node_partition = ""
@@ -42,14 +44,16 @@ class JobInfo(object):
         self.display_name = display_name
         self.status = status
 
-def get_value_of_key_from_string_list(key, string_list, can_be_absent = False):
+def get_value_of_key_from_string_list(key:str, string_list, can_be_absent = False) -> str | None:
     try:
         return string_list[string_list.index(key) + 1].rstrip()
     except:
-        if can_be_absent: return None
-        else: print("Could not find key", key)
+        if can_be_absent: 
+            return None
+        else: 
+            print("Could not find key", key)
 
-def get_job_objects(relative_path) -> list[JobInfo]:
+def get_job_objects(relative_path:str) -> list[JobInfo]:
     jobjects = list()
     pathlist = Path(relative_path).glob('*.job')
     
@@ -69,7 +73,7 @@ def get_job_objects(relative_path) -> list[JobInfo]:
     
     return jobjects
 
-def get_node_config(config_path):
+def get_node_config(config_path:str) -> list[str]:
     path = Path(config_path)
     with open(path, "r") as config_file:
         node_assignments = config_file.read().splitlines()
@@ -80,23 +84,27 @@ def get_node_config(config_path):
 
     return node_assignments
 
-def submit_job(script_path):
+def submit_job(script_path:Path) -> int:
     parent_directory = script_path.parent
 
     saved_content = ""
     # Write an update command to the bash file
-    with open(script_path, "r+") as script_file:
-        saved_content = script_file.read()
-        # If we call it through python it will not use the virtual environment, so just call it through bash
-        # edit: i started being a little less dumb and I now realize I can just type the path directly to invoke bash and using the python command forces a specific environment
-        # so I dont need to do it like this and can just do bash "script" -r and it works so FUCKING DO IT AND STOP WRITING COMMENTS THAT DO NOTHING
-        script_file.write('\nbash -ic "equpdate ${SLURM_JOBID} -r"')
+    with open(script_path, "r") as script_file:
+        saved_content = script_file.read()    
+
+    # Make a copy of the input file, add a line to update the script, send it and then delete it
+    script_path_temp = script_path.with_name(script_path.name + ".temp")
+    with open(script_path_temp, "x") as script_file_temp:
+        script_file_temp.write(saved_content)
+        # Could probably just call the path at this point so we're not on bash aliasses
+        # 
+        script_file_temp.write('\nbash -ic "equpdate ${SLURM_JOBID} -r"')
 
     failed = False
     try:
         result = subprocess.run(["sbatch", 
                                 "--parsable",
-                                script_path.name], 
+                                script_path_temp.name], 
             cwd = parent_directory,
             capture_output = True,
             text = True,
@@ -108,9 +116,8 @@ def submit_job(script_path):
         print(error.output)
         failed = True
 
-    # Restore the batch file as it was when the user send the command, so the update command is only seen by slurm and not the user
-    with open(script_path, "w") as script_file:
-        script_file.write(saved_content)
+    # Delete the temporary file, we dont need it anymore
+    Path.unlink(script_path_temp)
 
     if failed:
         sys.exit("Exited due to issue with job submission")
@@ -120,21 +127,35 @@ def submit_job(script_path):
 
     return job_id
 
-def submit_queued_job(job):
+# Turn a JobInfo object into a .job file. If a write_function is provided, it will be called after the normal definitons have been written
+def write_job_file(folder_location:str, job:JobInfo, write_function = None):
+    file_name = (job.display_name + "." if job.display_name is not None else "") + str(job.job_id) + ".job"
+
+    with open(f"{folder_location}/{file_name}", "x") as new_file:
+        new_file.write("input_path" + " " + str(job.input_path) + "\n")
+        new_file.write("node_partition" + " " + job.node_partition + "\n")
+        new_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
+        new_file.write("job_id" + " " + str(job.job_id) + "\n")
+        new_file.write("status running\n")
+
+        if job.display_name is not None:
+            new_file.write("display_name" + " " + job.display_name + "\n")
+
+        if write_function is not None:
+            write_function(new_file, job)
+
+# Submit a job from the queue, and move it to the running folder
+def submit_queued_job(job:JobInfo):
     Path.unlink(job.our_path)
 
-    job_id = submit_job(job.input_path)
+    # We change from the queue id (Q9999) to the actual slurm job id here
+    job.job_id = submit_job(job.input_path)
+    
+    job.status = "running"
 
-    file_name = (job.display_name + "." if job.display_name is not None else "") + str(job_id) + ".job"
-    with open(f"{relative_running_path}/{file_name}", "x") as running_file:
-        running_file.write("input_path" + " " + str(job.input_path) + "\n")
-        running_file.write("node_partition" + " " + job.node_partition + "\n")
-        running_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
-        if job.display_name is not None:
-            running_file.write("display_name" + " " + job.display_name + "\n")
-        running_file.write("job_id" + " " + str(job_id) + "\n")
-        running_file.write("status running\n")
+    write_job_file(relative_running_path, job)
 
+# Get how many jobs we are currently running
 def get_current_running_count():
     result = subprocess.run(["squeue", 
                              "--me",
@@ -150,7 +171,6 @@ def get_current_running_count():
 
 def gather_results(write_file, job:JobInfo):
     write_file.write("Results below this line:\n")
-    # BUG: Not sure why, but the autocollector after a job does update the excel but does not always move jobs to finished, but does on user update
     print("Gathering results for job", job.job_id, job.display_name)
 
     calculation_directory = Path(job.input_path).parent
@@ -198,19 +218,21 @@ def update_everything():
     
     check_queue_and_submit_jobs()
 
-def add_to_external_queue(script_path, node_partition = "", display_name = None):
-    # what are the odds they overlap? I'll risk it
-    queue_id = 'Q' + str(random.randint(0, 99999))
-    file_name = ((display_name + '.') if display_name is not None else '') + queue_id
+# Add to our queue
+def add_to_external_queue(script_path:str, node_partition = "", display_name = None):
+    write_job_file(relative_queued_path, 
+        JobInfo(
+            script_path = script_path, 
+            node_partition = node_partition,
+            started_at = None,
+            path = None,
+            # what are the odds they overlap? I'll risk it
+            job_id = 'Q' + str(random.randint(0, 99999)),
+            display_name = display_name,
+            status = "queued"
+        ))
 
-    with open(f"{relative_queued_path}/{file_name}.job", "x") as new_file:
-        new_file.write("input_path" + " " + script_path + "\n")
-        new_file.write("node_partition" + " " + node_partition + "\n")
-        new_file.write("job_id" + " " + queue_id + "\n")
-        if display_name is not None:
-            new_file.write("display_name" + " " + display_name + "\n")
-        new_file.write("status queued\n")
-
+# Check how many jobs are running, and find a job from the queue (if any) that is allowed to run
 def check_queue_and_submit_jobs(called_from_job = False):
     current_running_count = get_current_running_count()
     available_runners = max_runners - current_running_count
@@ -229,6 +251,7 @@ def check_queue_and_submit_jobs(called_from_job = False):
 
     jobs_to_submit = list()
 
+    # Remove jobs from the config list if theyre already on that partition
     for running_job in running_jobs:
         if running_job.node_partition in node_config:
             node_config.remove(running_job.node_partition)
@@ -236,14 +259,28 @@ def check_queue_and_submit_jobs(called_from_job = False):
             node_config.remove("ALL")
     
     # Loop through partitions first so that the config order is also the priority
+    used_partitions = list()
     for partition in node_config:
         job_to_remove = None
         for queued_job in queued_jobs:
             if queued_job.node_partition == partition:
                 jobs_to_submit.append(queued_job)
                 job_to_remove = queued_job
+                used_partitions.append(partition)
                 break
             elif partition == "ALL":
+                jobs_to_submit.append(queued_job)
+                job_to_remove = queued_job
+                used_partitions.append("ALL")
+                break
+        if job_to_remove is not None:
+            queued_jobs.remove(job_to_remove)
+    
+    # Job paritions that end in '-' will pull an ALL job if there are no more jobs for that partition.
+    for leftover_partition in node_config - used_partitions:
+        job_to_remove = None
+        if leftover_partition[-1] == '-':
+            for queued_job in queued_jobs:
                 jobs_to_submit.append(queued_job)
                 job_to_remove = queued_job
                 break
@@ -256,25 +293,12 @@ def check_queue_and_submit_jobs(called_from_job = False):
         submit_queued_job(job)
         available_runners -= 1
     
+# The job finished, so gather the results and move it to the finished folder
 def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
     Path.unlink(job.our_path) # Delete the job file, all relevant data is in an object anyway
     print("Unlinking", job.job_id)
 
-    # ternary abuse? must be a better way. also maybe make it a function
-    file_name = (job.display_name + "." if job.display_name is not None else "") + str(job.job_id) + ".job"
-
-    with open(f"{relative_finished_path}/{file_name}", "x") as finished_file:
-        print("Opening file", finished_file.name)
-        # Needs to be a function or something
-        finished_file.write("input_path" + " " + str(job.input_path) + "\n")
-        finished_file.write("node_partition" + " " + job.node_partition + "\n")
-        if job.display_name is not None:
-            finished_file.write("display_name" + " " + job.display_name + "\n")
-        finished_file.write("job_id" + " " + str(job.job_id) + "\n")
-        # started being finished >:)
-        finished_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
-
-        gather_results(finished_file, job)
+    write_job_file(relative_finished_path, job, gather_results)
     
     print("Checking for updates:", check_for_updates)
 
@@ -282,7 +306,7 @@ def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
         # There should be some free space again
         check_queue_and_submit_jobs(called_from_job)
 
-def run_command(command, arguments):
+def run_command(command:str, arguments:list[str]):
     match command:
         case "eqbatch":
             eqbatch(arguments)
@@ -296,7 +320,8 @@ def run_command(command, arguments):
             eqclear(arguments)
         case "equpdate":
             equpdate(arguments)
-    
+
+# Submit a job to the smart queue
 def eqbatch(arguments):
     if len(arguments) < 2:
         print("Usage: eqbatch <script_path> <node_partition A/B/C/etc...> [display_name]")
@@ -309,9 +334,10 @@ def eqbatch(arguments):
 
 def eqconfig(arguments):
     if len(arguments) < 1:
-        print("Usage: eqconfig <A/B/ALL/...> [A/B/ALL/...] ...")
+        print("Usage: eqconfig <A/B-/ALL/...> [A/B/ALL/...] ...")
         print("Updates the external queue runner config")
         print("The order in the eqconfig is also the order by which jobs are pulled from the queue")
+        print("Adding a '-' after the partition (A-) will grab an ALL job if there are no jobs for that partition.")
         print("Accepts partition string for:", max_runners, "runners")
         print("Use -i to view curent config")
     elif arguments[0] == "-i":
@@ -409,7 +435,6 @@ def eqclear(arguments):
 
                 print(f"Cleared finished job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
                 break
-
     else:
         print("Usage: eqclear <job_id>")
         print("Clears a finished job from the finished queue. Does not pull in new jobs.")
