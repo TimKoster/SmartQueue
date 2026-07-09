@@ -1,7 +1,10 @@
 #!/scistor/tc/dtt741/external_queue/venv/bin/python3.11
 staat bovenin het py programma, zorg ervoor dat die venv er is. Is dat standaard?
 
+python3.11 -m venv external_queue/venv
+activate venv/external_queue/bin/activate (ongeveer)
 pip install pandas
 pip install openpyxl
+deactivate
 
 Die ene shebang in de .py moet dan ook worden aangepast, misschien met een install script?

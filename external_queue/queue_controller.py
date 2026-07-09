@@ -89,6 +89,7 @@ def submit_job(script_path):
         saved_content = script_file.read()
         # If we call it through python it will not use the virtual environment, so just call it through bash
         # edit: i started being a little less dumb and I now realize I can just type the path directly to invoke bash and using the python command forces a specific environment
+        # so I dont need to do it like this and can just do bash "script" -r and it works so FUCKING DO IT AND STOP WRITING COMMENTS THAT DO NOTHING
         script_file.write('\nbash -ic "equpdate ${SLURM_JOBID} -r"')
 
     failed = False
@@ -101,8 +102,10 @@ def submit_job(script_path):
             text = True,
             check = True,
             )
-    except:
-        print("Error detected in sbatch command:\n", result)
+    except subprocess.CalledProcessError as error:
+        print("Error detected in sbatch command")
+        print(error.returncode)
+        print(error.output)
         failed = True
 
     # Restore the batch file as it was when the user send the command, so the update command is only seen by slurm and not the user
@@ -289,8 +292,8 @@ def run_command(command, arguments):
             eq(arguments)
         case "eqcancel":
             eqcancel(arguments)
-        case "eqedit":
-            eqedit(arguments)
+        case "eqclear":
+            eqclear(arguments)
         case "equpdate":
             equpdate(arguments)
     
@@ -376,6 +379,7 @@ def eq(arguments):
 
     print(table)
 
+# Cancel a queued or running job using their job_id/queue_id
 def eqcancel(arguments):
     if len(arguments) > 0:
         for job in get_job_objects(relative_running_path):
@@ -393,8 +397,22 @@ def eqcancel(arguments):
         print("Usage: eqcancel <job_id>")
         print("Cancels a running job and moves it to the finished queue. Does not pull in new jobs.")
 
-def eqedit(arguments):
-    print("do something")
+# Clear a finished job from the finished folder
+def eqclear(arguments):
+    if len(arguments) > 0:
+        for job in get_job_objects(relative_finished_path):
+            if job.job_id == arguments[0]:
+                # Just grab everything with the job_id so we get both the .job and possible .xyz 
+                paths = list(Path(relative_finished_path).glob(f'*{job.job_id}*'))
+                for path in paths:
+                    Path.unlink(path)
+
+                print(f"Cleared finished job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
+                break
+
+    else:
+        print("Usage: eqclear <job_id>")
+        print("Clears a finished job from the finished queue. Does not pull in new jobs.")
 
 def equpdate(arguments):
     print("Calling equpdate with arguments:", arguments)
@@ -403,15 +421,14 @@ def equpdate(arguments):
         # Also I dont know naming conventions but -r is for robot beep boop
         called_from_job = True if arguments[1] == "-r" else False
         for job in get_job_objects(relative_running_path):
-            print(f"Comparing {job.job_id} as {type(job.job_id)} with {int(arguments[0])}")
-            if job.job_id == int(arguments[0]):
+            if int(job.job_id) == int(arguments[0]):
                 finish_job(job, called_from_job = called_from_job)
                 break
     else:
         update_everything()
 
 # Run whatever command was selected
-print("Received arguments:", sys.argv)
+# print("Received arguments:", sys.argv)
 if len(sys.argv) > 1:
     # Make sure the working dir is always the rootdir. Easiest way is to get our location, which should be ~/external_queue/, and go back a step
     our_dir = Path(os.path.dirname(os.path.realpath(__file__)))
