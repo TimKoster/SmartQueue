@@ -93,7 +93,8 @@ def submit_job(script_path:Path) -> int:
         saved_content = script_file.read()    
 
     # Make a copy of the input file, add a line to update the script, send it and then delete it
-    script_path_temp = script_path.with_name(script_path.name + ".temp")
+    # Note that this does get submitted with that name, so anything using the slurm name will have a '_' affixed 
+    script_path_temp = script_path.with_name(script_path.name + "_")
     with open(script_path_temp, "x") as script_file_temp:
         script_file_temp.write(saved_content)
         # Could probably just call the path at this point so we're not on bash aliasses
@@ -136,7 +137,7 @@ def write_job_file(folder_location:str, job:JobInfo, write_function = None):
         new_file.write("node_partition" + " " + job.node_partition + "\n")
         new_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
         new_file.write("job_id" + " " + str(job.job_id) + "\n")
-        new_file.write("status running\n")
+        new_file.write("status " + job.status + "\n")
 
         if job.display_name is not None:
             new_file.write("display_name" + " " + job.display_name + "\n")
@@ -222,10 +223,10 @@ def update_everything():
 def add_to_external_queue(script_path:str, node_partition = "", display_name = None):
     write_job_file(relative_queued_path, 
         JobInfo(
-            script_path = script_path, 
+            input_path = script_path, 
             node_partition = node_partition,
             started_at = None,
-            path = None,
+            our_path = None, #it's a headache to add here and it doesnt matter since we're gonna instantly write it there anyway
             # what are the odds they overlap? I'll risk it
             job_id = 'Q' + str(random.randint(0, 99999)),
             display_name = display_name,
@@ -263,7 +264,9 @@ def check_queue_and_submit_jobs(called_from_job = False):
     for partition in node_config:
         job_to_remove = None
         for queued_job in queued_jobs:
-            if queued_job.node_partition == partition:
+            # Partitions can also look like 'B-', in which case we check for B partition jobs
+            # So also check if the same partition matches with a '-' job
+            if queued_job.node_partition == partition or (queued_job.node_partition + '-') == partition:
                 jobs_to_submit.append(queued_job)
                 job_to_remove = queued_job
                 used_partitions.append(partition)
@@ -277,7 +280,7 @@ def check_queue_and_submit_jobs(called_from_job = False):
             queued_jobs.remove(job_to_remove)
     
     # Job paritions that end in '-' will pull an ALL job if there are no more jobs for that partition.
-    for leftover_partition in node_config - used_partitions:
+    for leftover_partition in list(set(node_config) - set(used_partitions)):
         job_to_remove = None
         if leftover_partition[-1] == '-':
             for queued_job in queued_jobs:
@@ -297,6 +300,8 @@ def check_queue_and_submit_jobs(called_from_job = False):
 def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
     Path.unlink(job.our_path) # Delete the job file, all relevant data is in an object anyway
     print("Unlinking", job.job_id)
+
+    job.status = "finished"
 
     write_job_file(relative_finished_path, job, gather_results)
     
