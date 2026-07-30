@@ -102,6 +102,7 @@ def submit_job(script_path:Path) -> int:
         script_file_temp.write('\nbash -ic "equpdate ${SLURM_JOBID} -r"')
 
     failed = False
+
     try:
         result = subprocess.run(["sbatch", 
                                 "--parsable",
@@ -111,10 +112,11 @@ def submit_job(script_path:Path) -> int:
             text = True,
             check = True,
             )
+    # We NEED to handle this well or it will drive people insane when typo's in their slurm script secretely stop everything
     except subprocess.CalledProcessError as error:
         print("Error detected in sbatch command")
-        print(error.returncode)
-        print(error.output)
+        print(error)
+        print(error.stderr)
         failed = True
 
     # Delete the temporary file, we dont need it anymore
@@ -131,6 +133,9 @@ def submit_job(script_path:Path) -> int:
 # Turn a JobInfo object into a .job file. If a write_function is provided, it will be called after the normal definitons have been written
 def write_job_file(folder_location:str, job:JobInfo, write_function = None):
     file_name = (job.display_name + "." if job.display_name is not None else "") + str(job.job_id) + ".job"
+
+    # Make the dir in case it's not there (I have deleted them by accident more than once)
+    os.makedirs(Path(folder_location), exist_ok = True)
 
     with open(f"{folder_location}/{file_name}", "x") as new_file:
         new_file.write("input_path" + " " + str(job.input_path) + "\n")
@@ -339,16 +344,15 @@ def eqbatch(arguments):
 
 def eqconfig(arguments):
     if len(arguments) < 1:
+        with open(relative_node_config_path, "r") as config_file:
+            print("Current runner config:")
+            print(config_file.read())
+    elif arguments[0] == "help":
         print("Usage: eqconfig <A/B-/ALL/...> [A/B/ALL/...] ...")
         print("Updates the external queue runner config")
         print("The order in the eqconfig is also the order by which jobs are pulled from the queue")
         print("Adding a '-' after the partition (A-) will grab an ALL job if there are no jobs for that partition.")
         print("Accepts partition string for:", max_runners, "runners")
-        print("Use -i to view curent config")
-    elif arguments[0] == "-i":
-        with open(relative_node_config_path, "r") as config_file:
-            print("Current runner config:")
-            print(config_file.read())
     else:
         with open(relative_node_config_path, "w") as config_file:
             for string in arguments:
@@ -418,12 +422,14 @@ def eqcancel(arguments):
                 subprocess.run(["scancel", str(job.job_id)], check = True)
                 finish_job(job, check_for_updates = False)
                 print(f"Cancelled job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
-                break
+                return
         for job in get_job_objects(relative_queued_path):
             if job.job_id == arguments[0]:
                 Path.unlink(job.our_path)
                 print(f"Cancelled queued job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
-                break
+                return
+            
+        print(f"Couldn't find job with id {arguments[0]}")
     else:
         print("Usage: eqcancel <job_id>")
         print("Cancels a running job and moves it to the finished queue. Does not pull in new jobs.")
@@ -439,7 +445,8 @@ def eqclear(arguments):
                     Path.unlink(path)
 
                 print(f"Cleared finished job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
-                break
+                return
+        print(f"Couldn't find job with id {arguments[0]}")
     else:
         print("Usage: eqclear <job_id>")
         print("Clears a finished job from the finished queue. Does not pull in new jobs.")
