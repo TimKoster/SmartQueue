@@ -6,7 +6,6 @@ import sys
 import subprocess
 import random
 import os
-import datetime
 
 from data_collector import scrape_results
 
@@ -175,6 +174,98 @@ def get_current_running_count():
     queue_size = result.stdout.count("NODE") - 1
     return queue_size
 
+# When using smartqueue for the first time, or when using utilities like PyFrag, we can end up with unmanaged jobs, so import them to ease the transition or support other tools
+def import_unmanaged_jobs(managed_jobs:list[JobInfo]) -> list[JobInfo]:
+    result = subprocess.run(["squeue", 
+                             "--me",
+                             "-h", # custom formatting
+                             "-o", # no header
+                            #  %A: Job id
+                            #  %T: State, what the job is actually doing (RUNNING, QUEUED, PENDING etc)
+                            #  %S: Time it has been running (already formatted) (this sucks because we need a timestamp)
+                            #  %o: 'Command', but in our case a full path to the bash submission file we're running
+                            #  All seperated with '|'
+                            # See https://slurm.schedmd.com/squeue.html for more info
+                             "%A|%T|%S|%o", 
+                             ],
+        capture_output = True,
+        text = True,
+        check = True,
+    )    
+
+    # Make a list of the managed id's so we can avoid checking them twice
+    job_ids:list[int] = []
+    
+    for job in managed_jobs:
+        job_ids.append(job.job_id)
+
+    new_jobs:list[JobInfo] = list()
+
+    # You should run the subprocess command in bash to see how it looks like, but it's something like this for every job:
+    # 12345|RUNNING|2026-07-28T09:42:05|bla/bla/bla/job_file
+    # Where long_job_string is a single line as you see above
+    for long_job_string in result.stdout.split():
+        split_job_string = long_job_string.split('|')
+
+        # Already managed, skip!!!
+        if split_job_string[0] in job_ids:
+            continue
+            
+        # Write them to the running folder, officially importing them 🥹
+        new_job = JobInfo(
+            input_path = split_job_string[3],
+            node_partition = "NONE",
+            # If it's N/A we havent started yet, so just assume it's now (even if it's queued or something and technically hasn't started)
+            started_at = datetime.datetime.fromisoformat(split_job_string[2]) if split_job_string[2] != "N/A" else int(datetime.datetime.today().timestamp()),
+            our_path = None,
+            job_id = split_job_string[0],
+            display_name = "imported_slurm_job",
+            status = split_job_string[1].lower(),
+        )
+
+        write_job_file(relative_running_path, new_job)
+        new_jobs.append(new_job)
+
+    return new_jobs
+
+def update_running_status(running_jobs:list[JobInfo]) -> list[JobInfo]:
+    result = subprocess.run(["squeue", 
+                             "--me",
+                             "-h", # custom formatting
+                             "-o", # no header
+                            #  %A: Job id
+                            #  %T: State, what the job is actually doing (RUNNING, QUEUED, PENDING etc)
+                            #  All seperated with '|'
+                            # See https://slurm.schedmd.com/squeue.html for more info
+                             "%A|%T", 
+                             ],
+        capture_output = True,
+        text = True,
+        check = True,
+    )  
+
+    # Make a dictionary of kind job_id = job for easy access
+    job_id_index:dict[str, JobInfo] = {}
+    for job in running_jobs:
+        job_id_index[job.job_id] = job
+
+    # long_job_string is something like :
+    # 12345|RUNNING
+    for long_job_string in result.stdout.split():
+        # split into job_id and status
+        split_job_string = long_job_string.split('|')
+
+        # There can be unmanaged jobs in the result we get, which is not our problem (but is for import_unmanaged_jobs)
+        if split_job_string[0] not in job_id_index:
+            continue
+
+        # get the job object belonging to the id
+        job = job_id_index[split_job_string[0]]
+        # Set job status to the new status 
+        job.status = split_job_string[1].lower()
+
+    return running_jobs
+
 def gather_results(write_file, job:JobInfo):
     write_file.write("Results below this line:\n")
     print("Gathering results for job", job.job_id, job.display_name)
@@ -304,13 +395,10 @@ def check_queue_and_submit_jobs(called_from_job = False):
 # The job finished, so gather the results and move it to the finished folder
 def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
     Path.unlink(job.our_path) # Delete the job file, all relevant data is in an object anyway
-    print("Unlinking", job.job_id)
 
     job.status = "finished"
 
     write_job_file(relative_finished_path, job, gather_results)
-    
-    print("Checking for updates:", check_for_updates)
 
     if check_for_updates:
         # There should be some free space again
@@ -351,7 +439,7 @@ def eqconfig(arguments):
         print("Usage: eqconfig <A/B-/ALL/...> [A/B/ALL/...] ...")
         print("Updates the external queue runner config")
         print("The order in the eqconfig is also the order by which jobs are pulled from the queue")
-        print("Adding a '-' after the partition (A-) will grab an ALL job if there are no jobs for that partition.")
+        print("Adding a '-' after the partition ('A-') will grab an 'ALL' job if there are no jobs for the 'A' partition.")
         print("Accepts partition string for:", max_runners, "runners")
     else:
         with open(relative_node_config_path, "w") as config_file:
@@ -388,12 +476,22 @@ def eq(arguments):
         update_everything()
 
     jobs = list()
-    if print_finished:
+
+    if print_finished: 
         jobs += get_job_objects(relative_finished_path)
+
     if print_queued:
         jobs += get_job_objects(relative_queued_path)
+
     if print_running:
-        jobs += get_job_objects(relative_running_path)
+        running_jobs = update_running_status(get_job_objects(relative_running_path))
+
+        # If the amount of current running jobs is somehow more than the running jobs we are tracking, we got unmanaged jobs
+        # Either from first time use, betrayal or unmanaged tools, we'd better just do our best and neatly import them
+        if get_current_running_count() > len(running_jobs):
+            running_jobs += import_unmanaged_jobs(running_jobs)
+
+        jobs += running_jobs
 
     info = list()
     
