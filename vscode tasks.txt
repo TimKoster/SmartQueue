@@ -4,15 +4,23 @@ Add this to your .vscode/tasks.json
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "sbatch",
+      "type": "shell",
+      "command": "sbatch",
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "args": [
+        "${file}"
+      ],
+    },
+    {
       "label": "submit job",
       "type": "shell",
-      "command": "python",
+      "command": "bash",
       "args": [
-        "external_queue/queue_controller.py",
-        "eqbatch",
-        "${file}",
-        "${input:param1}",
-        "${input:param2}",
+        "-ic",
+        "eqbatch ${file} ${input:param1} ${input:param2}"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -30,9 +38,8 @@ Add this to your .vscode/tasks.json
     {
         "id": "param2",
         "description": "Display name:",
-        "default": "WAAA",
+        "default": "Name",
         "type": "promptString"
     },
-
   ]
 }
