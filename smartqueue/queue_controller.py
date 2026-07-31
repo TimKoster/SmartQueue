@@ -1,4 +1,3 @@
-#!/scistor/tc/dtt741/external_queue/venv/bin/python3.11
 import datetime
 import pandas as pd
 from pathlib import Path
@@ -9,12 +8,12 @@ import os
 
 from data_collector import scrape_results
 
-relative_queued_path = "external_queue/queued"
-relative_finished_path = "external_queue/finished"
-relative_running_path = "external_queue/running"
-relative_node_config_path = "external_queue/runner_config"
+relative_queued_path = "_queued"
+relative_finished_path = "_finished"
+relative_running_path = "_running"
+relative_node_config_path = "smartqueue/runner_config"
 
-relative_excel_path = "external_queue/overview.xlsx"
+relative_excel_path = "smartqueue.xlsx"
 
 # In the node config, if something is empty or marked ALL, it will accept any job (but only if that job wasnt let in on another node)
 wildcard_key = "ALL"
@@ -216,7 +215,7 @@ def import_unmanaged_jobs(managed_jobs:list[JobInfo]) -> list[JobInfo]:
             input_path = split_job_string[3],
             node_partition = "NONE",
             # If it's N/A we havent started yet, so just assume it's now (even if it's queued or something and technically hasn't started)
-            started_at = datetime.datetime.fromisoformat(split_job_string[2]) if split_job_string[2] != "N/A" else int(datetime.datetime.today().timestamp()),
+            started_at = int(datetime.datetime.fromisoformat(split_job_string[2])) if split_job_string[2] != "N/A" else int(datetime.datetime.today().timestamp()),
             our_path = None,
             job_id = split_job_string[0],
             display_name = "imported_slurm_job",
@@ -550,7 +549,6 @@ def eqclear(arguments):
         print("Clears a finished job from the finished queue. Does not pull in new jobs.")
 
 def equpdate(arguments):
-    print("Calling equpdate with arguments:", arguments)
     if len(arguments) > 0:
         # Important to track, because a job that is finishing will still make the script think no new jobs can be submitted because that job is technically still running
         # Also I dont know naming conventions but -r is for robot beep boop

@@ -1,6 +1,0 @@
-eqbatch <path_to_file> <partition> [display_name]
-eqconfig
-eq
-equpdate
-eqclear
-eqcancel

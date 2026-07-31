@@ -1,28 +1,33 @@
 Add this to your .bashrc
 
-export PATH=/external_queue/:"$PATH"
+alias r='eq -r'
+alias q='eq -q'
+alias f='eq -f'
+alias a='eq -a'
+
+export PATH=/smartqueue/:"$PATH"
 eqbatch () {
-    ~/external_queue/queue_controller.py eqbatch "$@"
+    ~/smartqueue/venv/bin/python3.11  ~/smartqueue/queue_controller.py eqbatch "$@"
 }
 
 eqconfig () {
-    ~/external_queue/queue_controller.py eqconfig "$@"
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eqconfig "$@"
 }
 
 eq () {
-    ~/external_queue/queue_controller.py eq "$@"
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eq "$@"
 }
 
 eqcancel () {
-    ~/external_queue/queue_controller.py eqcancel "$@"
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eqcancel "$@"
 }
 
-eqedit () {
-    ~/external_queue/queue_controller.py eqedit "$@"
+eqclear () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eqclear "$@"
 }
 
 equpdate () {
-    ~/external_queue/queue_controller.py equpdate "$@"
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py equpdate "$@"
 }
 
 if [ -d ~/.bash_completion.d ]; then
