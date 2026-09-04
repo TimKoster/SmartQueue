@@ -22,7 +22,7 @@ eqconfig
 - Updates the external queue runner config
 - The order in the eqconfig is also the order by which jobs are pulled from the queue
 - Adding a '-' after the partition ('A-') will grab an 'ALL' job if there are no jobs for the 'A' partition.
-- Accepts partition string for: 8 runners
+- The amount of accepted partitions is dependent on the max_runners, which is defined in the queue_controller.py.
 
 eqclear
 
