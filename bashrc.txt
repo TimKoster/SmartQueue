@@ -1,33 +1,33 @@
 Add this to your .bashrc
 
-alias r='eq -r'
-alias q='eq -q'
-alias f='eq -f'
-alias a='eq -a'
+alias r='sq -r'
+alias q='sq -q'
+alias f='sq -f'
+alias a='sq -a'
 
 export PATH=/smartqueue/:"$PATH"
-eqbatch () {
-    ~/smartqueue/venv/bin/python3.11  ~/smartqueue/queue_controller.py eqbatch "$@"
+sqbatch () {
+    ~/smartqueue/venv/bin/python3.11  ~/smartqueue/queue_controller.py sqbatch "$@"
 }
 
-eqconfig () {
-    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eqconfig "$@"
+sqconfig () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sqconfig "$@"
 }
 
-eq () {
-    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eq "$@"
+sq () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sq "$@"
 }
 
-eqcancel () {
-    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eqcancel "$@"
+xqcancel () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sqcancel "$@"
 }
 
-eqclear () {
-    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py eqclear "$@"
+sqclear () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sqclear "$@"
 }
 
-equpdate () {
-    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py equpdate "$@"
+squpdate () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py squpdate "$@"
 }
 
 if [ -d ~/.bash_completion.d ]; then

@@ -20,7 +20,7 @@ Add this to your .vscode/tasks.json
       "command": "bash",
       "args": [
         "-ic",
-        "eqbatch ${file} ${input:param1} ${input:param2}"
+        "sqbatch ${file} ${input:param1} ${input:param2}"
       ],
       "options": {
         "cwd": "${workspaceFolder}"

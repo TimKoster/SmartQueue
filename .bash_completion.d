@@ -3,4 +3,4 @@ _eqbatch_completion() {
     COMPREPLY=($(compgen -f -- "$cur"))
 }
 
-complete -o filenames -F _eqbatch_completion eqbatch
+complete -o filenames -F _sqbatch_completion sqbatch

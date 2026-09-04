@@ -5,6 +5,7 @@ import sys
 import subprocess
 import random
 import os
+import tcmu
 
 from data_collector import scrape_results
 
@@ -97,7 +98,7 @@ def submit_job(script_path:Path) -> int:
         script_file_temp.write(saved_content)
         # Could probably just call the path at this point so we're not on bash aliasses
         # 
-        script_file_temp.write('\nbash -ic "equpdate ${SLURM_JOBID} -r"')
+        script_file_temp.write('\nbash -ic "squpdate ${SLURM_JOBID} -r"')
 
     failed = False
 
@@ -296,6 +297,17 @@ def gather_results(write_file, job:JobInfo):
         excel.to_excel(writer, sheet_name = 'Jobs', index = False)
         print("Updated", relative_excel_path)
 
+# def get_results(calculation_directory, job.job_id):
+#     results = dict()
+#     seperate_results = dict()
+
+#     result_object = tcmu.read(calculation_directory)
+
+#     results["engine"] = result_object.engine
+#     results["status"] = tcmu.quick_status(calculation_directory)
+#     results["energy_out"] = result_object.properties.energy.bond
+
+
 # Check what jobs are finished, and finish them if they are, then check the whole queue
 # For when you need to manually prompt a full update for one reason or another
 def update_everything():
@@ -405,23 +417,23 @@ def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
 
 def run_command(command:str, arguments:list[str]):
     match command:
-        case "eqbatch":
-            eqbatch(arguments)
-        case "eqconfig":
-            eqconfig(arguments)
-        case "eq":
-            eq(arguments)
-        case "eqcancel":
-            eqcancel(arguments)
-        case "eqclear":
-            eqclear(arguments)
-        case "equpdate":
-            equpdate(arguments)
+        case "sqbatch":
+            sqbatch(arguments)
+        case "sqconfig":
+            sqconfig(arguments)
+        case "sq":
+            sq(arguments)
+        case "sqcancel":
+            sqcancel(arguments)
+        case "sqclear":
+            sqclear(arguments)
+        case "squpdate":
+            squpdate(arguments)
 
 # Submit a job to the smart queue
-def eqbatch(arguments):
+def sqbatch(arguments):
     if len(arguments) < 2:
-        print("Usage: eqbatch <script_path> <node_partition A/B/C/etc...> [display_name]")
+        print("Usage: sqbatch <script_path> <node_partition A/B/C/etc...> [display_name]")
         return
     
     # script path, node partition, display name (optional)
@@ -429,15 +441,15 @@ def eqbatch(arguments):
 
     check_queue_and_submit_jobs()
 
-def eqconfig(arguments):
+def sqconfig(arguments):
     if len(arguments) < 1:
         with open(relative_node_config_path, "r") as config_file:
             print("Current runner config:")
             print(config_file.read())
     elif arguments[0] == "help":
-        print("Usage: eqconfig <A/B-/ALL/...> [A/B/ALL/...] ...")
+        print("Usage: sqconfig <A/B-/ALL/...> [A/B-/ALL/...] ...")
         print("Updates the external queue runner config")
-        print("The order in the eqconfig is also the order by which jobs are pulled from the queue")
+        print("The order in the sqconfig is also the order by which jobs are pulled from the queue")
         print("Adding a '-' after the partition ('A-') will grab an 'ALL' job if there are no jobs for the 'A' partition.")
         print("Accepts partition string for:", max_runners, "runners")
     else:
@@ -449,7 +461,7 @@ def eqconfig(arguments):
 
 # Get the current 'external queue', including the queued jobs at the top. 
 # Comes with -r(unning), -q(ueued), -f(inished) and -a(ll) options too, but default is running and queued
-def eq(arguments):
+def sq(arguments):
     print_running, print_queued, print_finished = False, False, False
 
     if len(arguments) <= 0:
@@ -465,7 +477,7 @@ def eq(arguments):
             case "-q":
                 print_queued = True
             case _:
-                print("eq [-a for all, -f for finished, -r for running and -q for queued jobs] [-s to not update]")
+                print("sq [-a for all, -f for finished, -r for running and -q for queued jobs] [-s to not update]")
                 print("Does not report on jobs not handled by the external queue.")
                 return
     
@@ -512,7 +524,7 @@ def eq(arguments):
     print(table)
 
 # Cancel a queued or running job using their job_id/queue_id
-def eqcancel(arguments):
+def sqcancel(arguments):
     if len(arguments) > 0:
         for job in get_job_objects(relative_running_path):
             if job.job_id == arguments[0]:
@@ -528,11 +540,11 @@ def eqcancel(arguments):
             
         print(f"Couldn't find job with id {arguments[0]}")
     else:
-        print("Usage: eqcancel <job_id>")
+        print("Usage: sqcancel <job_id>")
         print("Cancels a running job and moves it to the finished queue. Does not pull in new jobs.")
 
 # Clear a finished job from the finished folder
-def eqclear(arguments):
+def sqclear(arguments):
     if len(arguments) > 0:
         for job in get_job_objects(relative_finished_path):
             if job.job_id == arguments[0]:
@@ -545,10 +557,10 @@ def eqclear(arguments):
                 return
         print(f"Couldn't find job with id {arguments[0]}")
     else:
-        print("Usage: eqclear <job_id>")
+        print("Usage: sqclear <job_id>")
         print("Clears a finished job from the finished queue. Does not pull in new jobs.")
 
-def equpdate(arguments):
+def squpdate(arguments):
     if len(arguments) > 0:
         # Important to track, because a job that is finishing will still make the script think no new jobs can be submitted because that job is technically still running
         # Also I dont know naming conventions but -r is for robot beep boop

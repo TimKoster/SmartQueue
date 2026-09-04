@@ -56,9 +56,9 @@ def scrape_slurm(calculation_directory, job_id, results):
             if "NORMAL TERMINATION with errors" in slurm_content:
                 results["TERMINATION:"] = "NORMAL TERMINATION with errors"
                 results["status"] = "failed"
-            elif "NORMAL TERMINATION":
+            elif "NORMAL TERMINATION" in slurm_content:
                 results["TERMINATION:"] = "NORMAL TERMINATION"
-            elif "CANCELLED AT":
+            elif "CANCELLED AT"in slurm_content:
                 results["TERMINATION"] = "CANCELLED"
                 results["status"] = "cancelled"
             else:
