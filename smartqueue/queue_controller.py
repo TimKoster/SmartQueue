@@ -322,20 +322,27 @@ def xyz_format(mol: plams.Molecule, include_n_atoms: bool = True, include_lattic
 
     return xyz_string
 
+# Scrape whatever results we can from the calculation. If it's not an ams job, just give up and say we finished 
+# Could probably split the ams specific stuff for modularisation...
 def get_results(calculation_directory:Path):
     results = dict()
     seperate_results = dict()
 
-    result_object = tcmu.read(calculation_directory)
+    # AMS / TCMU result reading
+    try:
+        result_object = tcmu.read(calculation_directory)
 
-    results["engine"] = result_object.engine
-    results["task"] = result_object.input.Task
-    results["status"] = result_object.status.name.lower()
-    results["energy_out"] = result_object.properties.energy.bond
+        results["engine"] = result_object.engine
+        results["task"] = result_object.input.Task
+        results["status"] = result_object.status.name.lower()
+        results["energy_out"] = result_object.properties.energy.bond
 
-    if result_object.molecule.output:
-        molecule:plams.Molecule = result_object.molecule.output
-        seperate_results["xyz"] = xyz_format(molecule)
+        if result_object.molecule.output:
+            molecule:plams.Molecule = result_object.molecule.output
+            seperate_results["xyz"] = xyz_format(molecule)
+    except:
+        print("Could not read results")
+        results["status"] = "finished"
         
     return results, seperate_results
 
