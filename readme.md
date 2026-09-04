@@ -15,7 +15,7 @@ Partitions:
 Viewing results:
 
 - Results are stored in the finished/ folder, in for example the corresponding .job .xyz files.
-- Results are also printed to overview.xlsx. Colums and rows can be moved freely. This can be used to rapidly export results to, for example, a personal bookkeeping system.
+- Results are also printed to smartqueue.xlsx. Colums and rows can be moved freely. This can be used to rapidly export results to, for example, a personal bookkeeping system.
 
 sqbatch
 
