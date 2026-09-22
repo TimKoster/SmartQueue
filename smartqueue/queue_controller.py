@@ -138,7 +138,7 @@ def write_job_file(folder_location:str, job:JobInfo, write_function = None):
     with open(f"{folder_location}/{file_name}", "x") as new_file:
         new_file.write("input_path" + " " + str(job.input_path) + "\n")
         new_file.write("node_partition" + " " + job.node_partition + "\n")
-        new_file.write("started_at" + " " + str(datetime.datetime.today().timestamp()) + "\n")
+        new_file.write("started_at" + " " + (str(job.started_at) if job.started_at else str(datetime.datetime.today().timestamp())) + "\n")
         new_file.write("job_id" + " " + str(job.job_id) + "\n")
         new_file.write("status " + job.status + "\n")
 
@@ -387,7 +387,8 @@ def add_to_external_queue(script_path:str, node_partition = "", display_name = N
             our_path = None, #it's a headache to add here and it doesnt matter since we're gonna instantly write it there anyway
             # what are the odds they overlap? I'll risk it
             job_id = 'Q' + str(random.randint(0, 99999)),
-            display_name = display_name,
+            # If no name is given, take the file name from the path
+            display_name = display_name if display_name is not None else script_path.split("/")[-1],
             status = "queued"
         ))
 
@@ -480,15 +481,17 @@ def run_command(command:str, arguments:list[str]):
             sqclear(arguments)
         case "squpdate":
             squpdate(arguments)
+        case "sqhelp":
+            sqhelp(arguments)
 
 # Submit a job to the smart queue
 def sqbatch(arguments):
-    if len(arguments) < 2:
-        print("Usage: sqbatch <script_path> <node_partition A/B/C/etc...> [display_name]")
+    if len(arguments) < 1 or arguments[0] == "-h":
+        print("Usage: sqbatch <script_path> [node_partition A/B/C/etc...] [display_name]")
         return
     
     # script path, node partition, display name (optional)
-    add_to_external_queue(arguments[0], arguments[1], arguments[2] if len(arguments) > 2 else None)
+    add_to_external_queue(arguments[0], arguments[1] if len(arguments) > 1 else "NONE", arguments[2] if len(arguments) > 2 else None)
 
     check_queue_and_submit_jobs()
 
@@ -497,7 +500,7 @@ def sqconfig(arguments):
         with open(relative_node_config_path, "r") as config_file:
             print("Current runner config:")
             print(config_file.read())
-    elif arguments[0] == "help":
+    elif arguments[0] == "-h":
         print("Usage: sqconfig <A/B-/ALL/...> [A/B-/ALL/...] ...")
         print("Updates the external queue runner config")
         print("The order in the sqconfig is also the order by which jobs are pulled from the queue")
@@ -576,7 +579,7 @@ def sq(arguments):
 
 # Cancel a queued or running job using their job_id/queue_id
 def sqcancel(arguments):
-    if len(arguments) > 0:
+    if len(arguments) > 0 and arguments[0] != "-h":
         for job in get_job_objects(relative_running_path):
             if job.job_id == arguments[0]:
                 subprocess.run(["scancel", str(job.job_id)], check = True)
@@ -596,7 +599,7 @@ def sqcancel(arguments):
 
 # Clear a finished job from the finished folder
 def sqclear(arguments):
-    if len(arguments) > 0:
+    if len(arguments) > 0 and arguments[0] != "-h":
         for job in get_job_objects(relative_finished_path):
             if job.job_id == arguments[0]:
                 # Just grab everything with the job_id so we get both the .job and possible .xyz 
@@ -613,8 +616,13 @@ def sqclear(arguments):
 
 def squpdate(arguments):
     if len(arguments) > 0:
+        if arguments[0] == "-h":
+            print("Usage: squpdate")
+            print("Checks for finished and imported jobs, starts jobs if needed.")
+            print("Use -r followed by a job id to check only that job.")
+            return
         # Important to track, because a job that is finishing will still make the script think no new jobs can be submitted because that job is technically still running
-        # Also I dont know naming conventions but -r is for robot beep boop
+        # Also -r is for robot beep boop
         called_from_job = True if arguments[1] == "-r" else False
         for job in get_job_objects(relative_running_path):
             if int(job.job_id) == int(arguments[0]):
@@ -623,8 +631,33 @@ def squpdate(arguments):
     else:
         update_everything()
 
+def sqhelp(arguments):
+    if len(arguments) > 0:
+        print("Prints all commands and their functions")
+        return # NO LOOPS!!!!
+
+    print("SmartQueue is a tool for externally managing slurm jobs.")
+    print("Functions include:")
+    print("     1. Tracking finished jobs and their endstates, ")
+    print("     2. Complete controle over queue priority through partitions, ")
+    print("     3. Automatically gathering and organizing relevant results.")
+    print(" ")
+    
+    commands_to_emulate = {"sqbatch",
+                                "sqconfig",
+                                "sq",
+                                "sqcancel",
+                                "sqclear",
+                                "squpdate",
+                                "sqhelp",
+                            }
+
+    for command in commands_to_emulate:
+        print(" ", command)
+        run_command(command, ["-h"])
+        print(" ")
+
 # Run whatever command was selected
-# print("Received arguments:", sys.argv)
 if len(sys.argv) > 1:
     # Make sure the working dir is always the rootdir. Easiest way is to get our location, which should be ~/external_queue/, and go back a step
     our_dir = Path(os.path.dirname(os.path.realpath(__file__)))

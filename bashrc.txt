@@ -18,7 +18,7 @@ sq () {
     ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sq "$@"
 }
 
-xqcancel () {
+sqcancel () {
     ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sqcancel "$@"
 }
 
@@ -30,10 +30,12 @@ squpdate () {
     ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py squpdate "$@"
 }
 
+sqhelp () {
+    ~/smartqueue/venv/bin/python3.11 ~/smartqueue/queue_controller.py sqhelp "$@"
+}
+
 if [ -d ~/.bash_completion.d ]; then
     for completion in ~/.bash_completion.d/*; do
         source "$completion"
     done
 fi
-
-# External queue end
