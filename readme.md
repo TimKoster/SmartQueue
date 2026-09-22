@@ -49,11 +49,16 @@ squpdate
 - pull in new jobs, meaning you might need to call this.
 - Note that the below 'sq' commands will also update all jobs if a discrepency is noticed
 
+sqhelp
+
+- Explains basic functionality and all commands
+
 sq
 
 - Usage: sq [-a for all, -f for finished, -r for running and -q for queued jobs] [-s to not update]
 - Can show the running, queued and finished jobs
 - Will internally call squpdate if a discrepency is noticed in running jobs. This can be supressed with -s
+- Will import jobs not already handled by SmartQueue 
 
 a
 - Show all jobs (running, queued and finished)
