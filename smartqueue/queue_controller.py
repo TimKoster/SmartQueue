@@ -160,17 +160,24 @@ def submit_queued_job(job:JobInfo):
     write_job_file(relative_running_path, job)
 
 # Get how many jobs we are currently running
-def get_current_running_count():
+def get_current_running_count(count_completing = False):
     result = subprocess.run(["squeue", 
                              "--me",
-                             "--format=NODE", # Okay this is very stupid but this just replaces every job with the word NODE, but it makes it easy to count so whatever                
+                             "-h", # no header
+                             "--format=%T", # only prints the status               
                              ],
         capture_output = True,
         text = True,
         check = True,
     )
-    # -1 because we also counted the header
-    queue_size = result.stdout.count("NODE") - 1
+
+    statuses = result.stdout.split()
+    queue_size = len(statuses)
+
+    if count_completing:
+        # dont count completing jobs, theyre gonna be done in a second
+        queue_size -= statuses.count("COMPLETING")
+    
     return queue_size
 
 # When using smartqueue for the first time, or when using utilities like PyFrag, we can end up with unmanaged jobs, so import them to ease the transition or support other tools
@@ -185,7 +192,7 @@ def import_unmanaged_jobs(managed_jobs:list[JobInfo]) -> list[JobInfo]:
                             #  %o: 'Command', but in our case a full path to the bash submission file we're running
                             #  All seperated with '|'
                             # See https://slurm.schedmd.com/squeue.html for more info
-                             "%A|%T|%S|%o", 
+                             "%A|%T|%S|%o|%j", 
                              ],
         capture_output = True,
         text = True,
@@ -201,7 +208,7 @@ def import_unmanaged_jobs(managed_jobs:list[JobInfo]) -> list[JobInfo]:
     new_jobs:list[JobInfo] = list()
 
     # You should run the subprocess command in bash to see how it looks like, but it's something like this for every job:
-    # 12345|RUNNING|2026-07-28T09:42:05|bla/bla/bla/job_file
+    # 12345|RUNNING|2026-07-28T09:42:05|bla/bla/bla/job_file|geo_opt_but_with_love
     # Where long_job_string is a single line as you see above
     for long_job_string in result.stdout.split():
         split_job_string = long_job_string.split('|')
@@ -209,16 +216,22 @@ def import_unmanaged_jobs(managed_jobs:list[JobInfo]) -> list[JobInfo]:
         # Already managed, skip!!!
         if split_job_string[0] in job_ids:
             continue
-            
+
+        # Don't bother, this one is gonna be done in 2 seconds
+        # There's also an edge case where a job finishes, gets moved out of the running jobs and gets marked as COMPLETING by slurm shortly before being cleaned up, but if the user
+        # calls an update in that inbetween period it will try to import it as a brand new job and it gets confused
+        if split_job_string[1] == "COMPLETING":
+            continue
+
         # Write them to the running folder, officially importing them 🥹
         new_job = JobInfo(
             input_path = split_job_string[3],
             node_partition = "NONE",
             # If it's N/A we havent started yet, so just assume it's now (even if it's queued or something and technically hasn't started)
-            started_at = int(datetime.datetime.fromisoformat(split_job_string[2])) if split_job_string[2] != "N/A" else int(datetime.datetime.today().timestamp()),
+            started_at = int(datetime.datetime.fromisoformat(split_job_string[2]).timestamp()) if split_job_string[2] != "N/A" else int(datetime.datetime.today().timestamp()),
             our_path = None,
             job_id = split_job_string[0],
-            display_name = "imported_slurm_job",
+            display_name = split_job_string[4],
             status = split_job_string[1].lower(),
         )
 
@@ -380,7 +393,7 @@ def add_to_external_queue(script_path:str, node_partition = "", display_name = N
 
 # Check how many jobs are running, and find a job from the queue (if any) that is allowed to run
 def check_queue_and_submit_jobs(called_from_job = False):
-    current_running_count = get_current_running_count()
+    current_running_count = get_current_running_count(count_completing = not called_from_job)
     available_runners = max_runners - current_running_count
 
     if called_from_job:
@@ -567,7 +580,7 @@ def sqcancel(arguments):
         for job in get_job_objects(relative_running_path):
             if job.job_id == arguments[0]:
                 subprocess.run(["scancel", str(job.job_id)], check = True)
-                finish_job(job, check_for_updates = False)
+                finish_job(job, check_for_updates = True)
                 print(f"Cancelled job {(job.display_name + ' ') if job.display_name is not None else ''}with ID {job.job_id}")
                 return
         for job in get_job_objects(relative_queued_path):
