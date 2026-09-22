@@ -309,32 +309,6 @@ def gather_results(write_file, job:JobInfo):
         excel.to_excel(writer, sheet_name = 'Jobs', index = False)
         print("Updated", relative_excel_path)
 
-
-# Extreme shame function. I forgot to wait for this to get merged before asking for a new tcmu release. Use tcmu.xyz_format whenever https://github.com/TheoChem-VU/TCMU/pull/534 is merged and in tcmu
-# and then get rid of this
-def xyz_format(mol: plams.Molecule, include_n_atoms: bool = True, include_lattices: bool = True) -> str:
-    """Returns a string representation of a molecule in the xyz format, e.g.:
-
-    C      0.00000000      0.00000000      0.00000000
-    H      1.00000000      0.00000000      0.00000000
-    H      0.00000000      1.00000000      0.00000000
-    H      0.00000000      0.00000000      1.00000000
-    VEC1   1.00000000     -1.00000000      0.00000000
-    ...
-    """
-
-    xyz_string = ""
-
-    if include_n_atoms:
-        xyz_string = f"{len(mol.atoms)}\n"
-
-    xyz_string += "\n".join([f"{at.symbol:6s}{at.x:16.8f}{at.y:16.8f}{at.z:16.8f}" for at in mol.atoms])
-
-    if include_lattices and len(mol.lattice):
-        xyz_string += "\n" + "\n".join([f"VEC{str(i + 1):3s}{mol.lattice[i][0]:16.8f}{mol.lattice[i][1]:16.8f}{mol.lattice[i][2]:16.8f}" for i in range(0, len(mol.lattice))])
-
-    return xyz_string
-
 # Scrape whatever results we can from the calculation. If it's not an ams job, just give up and say we finished 
 # Could probably split the ams specific stuff for modularisation...
 def get_results(calculation_directory:Path):
@@ -352,7 +326,7 @@ def get_results(calculation_directory:Path):
 
         if result_object.molecule.output:
             molecule:plams.Molecule = result_object.molecule.output
-            seperate_results["xyz"] = xyz_format(molecule)
+            seperate_results["xyz"] = tcmu.xyz_format(molecule)
     except:
         print("Could not read results")
         results["status"] = "finished"
