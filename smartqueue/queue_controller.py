@@ -42,6 +42,7 @@ class JobInfo(object):
         self.display_name = display_name
         self.status = status
 
+# Used to read the info from the .job files
 def get_value_of_key_from_string_list(key:str, string_list, can_be_absent = False) -> str | None:
     try:
         return string_list[string_list.index(key) + 1].rstrip()
@@ -51,6 +52,7 @@ def get_value_of_key_from_string_list(key:str, string_list, can_be_absent = Fals
         else: 
             print("Could not find key", key)
 
+# When given a path to the job folders, turns it into a list of JobInfo objects
 def get_job_objects(relative_path:str) -> list[JobInfo]:
     jobjects = list()
     pathlist = Path(relative_path).glob('*.job')
@@ -129,7 +131,7 @@ def submit_job(script_path:Path) -> int:
     return job_id
 
 # Turn a JobInfo object into a .job file. If a write_function is provided, it will be called after the normal definitons have been written
-def write_job_file(folder_location:str, job:JobInfo, write_function = None):
+def write_job_file(folder_location:str, job:JobInfo, reset_time = True, write_function = None):
     file_name = (job.display_name + "." if job.display_name is not None else "") + str(job.job_id) + ".job"
 
     # Make the dir in case it's not there (I have deleted them by accident more than once)
@@ -138,7 +140,7 @@ def write_job_file(folder_location:str, job:JobInfo, write_function = None):
     with open(f"{folder_location}/{file_name}", "x") as new_file:
         new_file.write("input_path" + " " + str(job.input_path) + "\n")
         new_file.write("node_partition" + " " + job.node_partition + "\n")
-        new_file.write("started_at" + " " + (str(job.started_at) if job.started_at else str(datetime.datetime.today().timestamp())) + "\n")
+        new_file.write("started_at" + " " + (str(job.started_at) if (job.started_at and not reset_time) else str(datetime.datetime.today().timestamp())) + "\n")
         new_file.write("job_id" + " " + str(job.job_id) + "\n")
         new_file.write("status " + job.status + "\n")
 
@@ -235,7 +237,8 @@ def import_unmanaged_jobs(managed_jobs:list[JobInfo]) -> list[JobInfo]:
             status = split_job_string[1].lower(),
         )
 
-        write_job_file(relative_running_path, new_job)
+        # Don't reset the time for this one since we're going from unmanaged running -> managed running and timer resets wouldnt make sense
+        write_job_file(relative_running_path, new_job, reset_time=False)
         new_jobs.append(new_job)
 
     return new_jobs
@@ -435,7 +438,7 @@ def finish_job(job:JobInfo, check_for_updates = True, called_from_job = False):
 
     job.status = "finished"
 
-    write_job_file(relative_finished_path, job, gather_results)
+    write_job_file(relative_finished_path, job, write_function=gather_results)
 
     if check_for_updates:
         # There should be some free space again
